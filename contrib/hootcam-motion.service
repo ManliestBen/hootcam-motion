@@ -1,0 +1,27 @@
+[Unit]
+Description=Hootcam Motion - motion detection and recording from RTSP streams
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Run as a dedicated user (create with: sudo useradd -r -s /bin/false hootcam)
+# Or use your normal user, e.g. nucuser
+User=hootcam
+Group=hootcam
+
+# Install path: change to match your hootcam-motion install
+WorkingDirectory=/opt/hootcam-motion
+ExecStart=/opt/hootcam-motion/.venv/bin/uvicorn hootcam_motion.main:app --host 0.0.0.0 --port 8080
+
+# Optional: set target dir for recordings. Create the file and uncomment.
+# EnvironmentFile=/etc/hootcam-motion.env
+
+# Restart on failure
+Restart=always
+RestartSec=5
+
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
