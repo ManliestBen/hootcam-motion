@@ -2,7 +2,7 @@
 
 ## Run on boot (NUC or Linux server)
 
-1. Complete the main [README](../README.md) setup (pip install, configure `stream_url` per camera).
+1. Complete the main [README](../README.md) setup (venv + `pip install -r requirements.txt`, configure `stream_url` per camera).
 
 2. Copy the unit file:
    ```bash

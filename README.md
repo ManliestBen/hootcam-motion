@@ -23,10 +23,12 @@ Part of the **3-part Hootcam** setup:
 
 ## Setup
 
-1. **Install dependencies**
+1. **Create a virtualenv and install dependencies** (recommended; keeps deps isolated from system Python):
 
    ```bash
    cd hootcam-motion
+   python3 -m venv .venv
+   source .venv/bin/activate   # On Windows: .venv\Scripts\activate
    pip install -r requirements.txt
    ```
 
@@ -39,7 +41,7 @@ Part of the **3-part Hootcam** setup:
 
    Replace `192.168.1.10` with your Pi’s IP. You can also set these via the API: `PATCH /cameras/0/config` and `PATCH /cameras/1/config` with `{ "stream_url": "rtsp://..." }`.
 
-3. **Run**
+3. **Run** (with venv activated)
 
    ```bash
    uvicorn hootcam_motion.main:app --host 0.0.0.0 --port 8080
