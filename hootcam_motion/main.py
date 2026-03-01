@@ -14,6 +14,8 @@ import logging
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
+
+from .time_util import now_central
 from typing import Any, Optional
 
 from fastapi import FastAPI
@@ -72,11 +74,22 @@ async def _ingest_loop(
     framerate = config.framerate or 15
     interval = 1.0 / framerate
     no_frame_count = 0
-    NO_FRAME_FAILURE_THRESHOLD = 30  # mark failed after this many intervals with no frame
+    failure_sec = global_config.stream_failure_sec if global_config.stream_failure_sec is not None else 15
+    retry_sec = global_config.stream_retry_sec if global_config.stream_retry_sec is not None else 5
+    failure_threshold = max(10, int(failure_sec * framerate))  # intervals before mark failed
+    retry_interval = max(5, int(retry_sec * framerate))  # intervals between re-attempts when failed
 
     while True:
         try:
             if state.get("camera_failed") and state["camera_failed"][camera_index]:
+                # Re-attempt connection periodically so we recover when the stream comes back
+                retry_counts = state.get("stream_retry_count")
+                if retry_counts is not None:
+                    retry_counts[camera_index] = retry_counts[camera_index] + 1
+                    if retry_counts[camera_index] >= retry_interval:
+                        retry_counts[camera_index] = 0
+                        state["camera_failed"][camera_index] = False
+                        log.info("Camera %d: re-attempting stream connection.", camera_index)
                 await asyncio.sleep(interval)
                 continue
 
@@ -85,9 +98,15 @@ async def _ingest_loop(
 
             if frame is None or jpeg_bytes is None:
                 no_frame_count += 1
-                if no_frame_count >= NO_FRAME_FAILURE_THRESHOLD and state.get("camera_failed") is not None:
+                if no_frame_count >= failure_threshold and state.get("camera_failed") is not None:
                     state["camera_failed"][camera_index] = True
-                    log.warning("Camera %d: no frame from RTSP for too long; marking failed.", camera_index)
+                    if state.get("stream_retry_count") is not None:
+                        state["stream_retry_count"][camera_index] = 0
+                    url = (config.stream_url or "").strip() or "(no stream_url set)"
+                    log.warning(
+                        "Camera %d: no frame from stream for %d s; marking failed. Will re-try in %d s. stream_url=%s",
+                        camera_index, failure_sec, retry_sec, url,
+                    )
                 await asyncio.sleep(interval)
                 continue
             no_frame_count = 0
@@ -97,23 +116,18 @@ async def _ingest_loop(
             if state.get("latest_jpeg") is not None and camera_index < len(state["latest_jpeg"]):
                 state["latest_jpeg"][camera_index] = jpeg_bytes
 
-            if state["detection_paused"][camera_index]:
-                await asyncio.sleep(interval)
-                continue
-
-            motion_detected, _ = motion_detector.update(frame)
-            now = datetime.utcnow()
-
-            # On-demand snapshot
+            # On-demand snapshot: process even when detection is paused (so snapshots always work)
             requests = state.get("snapshot_requests") or {}
             if requests.get(camera_index) and requests[camera_index] and jpeg_bytes:
                 requests[camera_index].pop()
+                now_snap = now_central()
                 try:
                     name = recording._expand_filename(
                         config.snapshot_filename or "%v-%Y%m%d%H%M%S-snapshot",
                         0,
                         config.camera_id,
                         config.camera_name,
+                        now=now_snap,
                     )
                     snap_path = target_dir / f"{name}.jpg"
                     snap_path.parent.mkdir(parents=True, exist_ok=True)
@@ -129,11 +143,18 @@ async def _ingest_loop(
                             camera_index,
                             "snapshot",
                             rel,
-                            now.strftime("%Y-%m-%d %H:%M:%S"),
+                            now_snap.strftime("%Y-%m-%d %H:%M:%S"),
                             None,
                         )
                 except Exception as e:
                     log.warning("Snapshot save failed: %s", e)
+
+            if state["detection_paused"][camera_index]:
+                await asyncio.sleep(interval)
+                continue
+
+            motion_detected, _ = motion_detector.update(frame)
+            now = now_central()
 
             if recording_session is not None:
                 if motion_detected:
@@ -214,6 +235,7 @@ async def lifespan(app: FastAPI):
     current_event_id: list[Optional[int]] = [None, None]
     latest_jpeg: list[Optional[bytes]] = [None, None]
     camera_failed = [False, False]
+    stream_retry_count = [0, 0]  # per-camera counter for re-attempt interval when failed
 
     frame_sources: list[Optional[RTSPFrameSource]] = [None, None]
     for i in range(2):
@@ -222,7 +244,7 @@ async def lifespan(app: FastAPI):
             src = RTSPFrameSource(url, camera_index=i)
             src.start()
             frame_sources[i] = src
-            log.info("RTSP source %d: %s", i, url)
+            log.info("Stream source %d: %s", i, url)
         else:
             log.warning("Camera %d: no stream_url configured; skipping.", i)
 
@@ -259,6 +281,7 @@ async def lifespan(app: FastAPI):
         "current_event_id": current_event_id,
         "latest_jpeg": latest_jpeg,
         "camera_failed": camera_failed,
+        "stream_retry_count": stream_retry_count,
         "snapshot_requests": {},
         "save_global_config": save_global,
         "save_camera_config": save_camera,

@@ -13,6 +13,7 @@ from typing import Any, Callable, List, Optional
 
 from . import database
 from .api.schemas import CameraConfig
+from .time_util import now_central
 
 logger = logging.getLogger(__name__)
 
@@ -30,9 +31,11 @@ def _expand_filename(
     camera_id: Optional[int],
     camera_name: Optional[str],
     frame_number: int = 0,
+    now: Optional[datetime] = None,
 ) -> str:
-    """Replace conversion specifiers. Minimal set: %v, %Y%m%d%H%M%S, %q, %t, %$."""
-    now = datetime.utcnow()
+    """Replace conversion specifiers. Minimal set: %v, %Y%m%d%H%M%S, %q, %t, %$. Uses US Central time."""
+    if now is None:
+        now = now_central()
     s = template
     s = s.replace("%v", str(event_id))
     s = s.replace("%Y", now.strftime("%Y"))
@@ -98,7 +101,7 @@ class RecordingSession:
     def record_frame(self, jpeg_bytes: bytes, ts: Optional[datetime] = None) -> None:
         """Append one frame to current event (picture and/or movie)."""
         if ts is None:
-            ts = datetime.utcnow()
+            ts = now_central()
         self._record_frame(jpeg_bytes, ts)
 
     def _record_frame(self, jpeg_bytes: bytes, ts: datetime) -> None:
@@ -112,6 +115,7 @@ class RecordingSession:
                 self.config.camera_id,
                 self.config.camera_name,
                 self._frame_count,
+                now=ts,
             )
             pt = _str_val(self.config.picture_type)
             ext = ".jpg" if pt == "jpeg" else ".webp" if pt == "webp" else ".jpg"
@@ -159,6 +163,7 @@ class RecordingSession:
                 self.event_id,
                 self.config.camera_id,
                 self.config.camera_name,
+                now=ended_at,
             )
             out_path = self.target_dir / f"{name}{ext}"
             try:

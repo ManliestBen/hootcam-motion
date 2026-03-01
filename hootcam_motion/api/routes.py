@@ -500,8 +500,10 @@ async def list_files(
     ]
 
 
-def _resolve_file_path(state: dict, file_id: int) -> tuple[dict, Path]:
-    """Resolve file_id to DB row and absolute path. Raises HTTPException if not found or invalid."""
+def _resolve_file_path(state: dict, file_id: int, require_exists: bool = True) -> tuple[dict, Path]:
+    """Resolve file_id to DB row and absolute path. Raises HTTPException if not found or invalid.
+    If require_exists is False, do not require the file to exist on disk (for delete of orphan records).
+    """
     row = database.get_file(state["db_path"], file_id)
     if not row:
         raise HTTPException(404, "File not found")
@@ -516,7 +518,7 @@ def _resolve_file_path(state: dict, file_id: int) -> tuple[dict, Path]:
             raise HTTPException(403, "Invalid file path")
     except (ValueError, OSError):
         raise HTTPException(403, "Invalid file path")
-    if not full_path.is_file():
+    if require_exists and not full_path.is_file():
         raise HTTPException(404, "File not found on disk")
     return row, full_path
 
@@ -610,14 +612,15 @@ async def get_file_thumbnail(file_id: int):
     status_code=204,
     tags=["Events & Files"],
     summary="Delete a file",
-    description="Deletes the file from disk and removes its record from the database.",
+    description="Deletes the file from disk (if present) and removes its record from the database. Succeeds even when the file is already missing (e.g. orphan record).",
 )
 async def delete_file_route(file_id: int):
-    """Delete file from disk and database."""
+    """Delete file from disk (if it exists) and database. Allows deleting records whose files are already missing."""
     state = get_state()
-    row, full_path = _resolve_file_path(state, file_id)
+    row, full_path = _resolve_file_path(state, file_id, require_exists=False)
     try:
-        full_path.unlink(missing_ok=True)
+        if full_path.is_file():
+            full_path.unlink(missing_ok=True)
     except OSError as e:
         logger.warning("Could not delete file %s: %s", full_path, e)
     deleted = database.delete_file(state["db_path"], file_id)

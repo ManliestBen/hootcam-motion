@@ -133,6 +133,22 @@ class GlobalConfig(BaseModel):
         description="When on, stream is 1 fps with no motion and stream_maxrate when motion detected.",
     )
 
+    # stream_failure_sec: Seconds with no frame before marking camera as failed. Default 15.
+    stream_failure_sec: Optional[int] = Field(
+        default=15,
+        ge=3,
+        le=300,
+        description="Seconds with no frame from stream before marking camera failed. Higher = more tolerant of brief dropouts.",
+    )
+
+    # stream_retry_sec: When failed, re-attempt reading every this many seconds. Default 5.
+    stream_retry_sec: Optional[int] = Field(
+        default=5,
+        ge=2,
+        le=60,
+        description="When a camera is marked failed, clear failed and try reading again every this many seconds (reconnection).",
+    )
+
     # database_busy_timeout: SQLite only. Max ms to wait for locked table.
     database_busy_timeout: Optional[int] = Field(
         default=0,
@@ -162,10 +178,10 @@ class CameraConfig(BaseModel):
         description="Numeric id for database, format specifiers, and streams. Must be unique.",
     )
 
-    # stream_url: RTSP URL for this camera (e.g. from Hootcam Streamer on the Pi). Required for motion/recording.
+    # stream_url: Video stream URL for this camera (e.g. from Hootcam Streamer on the Pi). Required for motion/recording.
     stream_url: Optional[str] = Field(
         default=None,
-        description="RTSP URL (e.g. rtsp://pi-ip:8554/cam0). Required to receive video for this camera.",
+        description="Stream URL: MJPEG (e.g. http://pi-ip:8080/stream) or RTSP (e.g. rtsp://pi-ip:8554/cam0). Required to receive video for this camera.",
         max_length=2048,
     )
 
