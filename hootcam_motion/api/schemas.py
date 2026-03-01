@@ -149,6 +149,13 @@ class GlobalConfig(BaseModel):
         description="When a camera is marked failed, clear failed and try reading again every this many seconds (reconnection).",
     )
 
+    # streamer_api_url: If set, push camera resolution/fps to Hootcam Streamer on the Pi when you save camera config.
+    streamer_api_url: Optional[str] = Field(
+        default=None,
+        max_length=2048,
+        description="Base URL of Hootcam Streamer API (e.g. http://pi-ip:8084). When set, saving camera config in the UI also updates the streamer so resolution/fps trickle down to the Pi.",
+    )
+
     # database_busy_timeout: SQLite only. Max ms to wait for locked table.
     database_busy_timeout: Optional[int] = Field(
         default=0,
@@ -186,17 +193,17 @@ class CameraConfig(BaseModel):
     )
 
     # --- Image capture (used for motion/display; source is stream_url) ---
-    # width, height: For scaling/display only when different from stream.
+    # width, height: Not used to change stream resolution when stream_url is set; resolution is set by the source (e.g. Hootcam Streamer on the Pi). For display/metadata only.
     # framerate: Used for capture loop interval and recording timing.
     width: Optional[int] = Field(
         default=640,
         ge=8,
-        description="Width in pixels of each frame. Device-dependent; multiple of 8.",
+        description="Width in pixels. When using stream_url, resolution is set by the stream source (e.g. Hootcam Streamer); this is for reference only.",
     )
     height: Optional[int] = Field(
         default=480,
         ge=8,
-        description="Height in pixels of each frame. Device-dependent; multiple of 8.",
+        description="Height in pixels. When using stream_url, resolution is set by the stream source (e.g. Hootcam Streamer); this is for reference only.",
     )
 
     # framerate: Max frames per second (2-100). Default 15.
@@ -205,6 +212,19 @@ class CameraConfig(BaseModel):
         ge=2,
         le=100,
         description="Maximum frames to capture per second. Higher = more CPU and more frames in recordings.",
+    )
+
+    # autofocus: When stream comes from Hootcam Streamer, pushed to Pi. "continuous" (default) or "manual". With "manual", use lens_position.
+    autofocus: Optional[str] = Field(
+        default=None,
+        description="Focus mode on the Pi (Hootcam Streamer): continuous or manual. With manual, lens_position sets fixed focus. Only used when streamer_api_url is set.",
+    )
+    # lens_position: Fixed focus distance when autofocus is "manual". 0 = infinity, 0.5 ≈ 50 cm. Pushed to streamer when set.
+    lens_position: Optional[float] = Field(
+        default=None,
+        ge=0,
+        le=10,
+        description="Fixed focus (when autofocus=manual on streamer). 0 = infinity, 0.5 ≈ 50 cm. Requires camera that supports it (e.g. Pi Camera Module 3).",
     )
 
     # minimum_frame_time: Min seconds between frames. 0 = use framerate.

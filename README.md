@@ -62,8 +62,10 @@ Part of the **3-part Hootcam** setup:
 ## Configuration
 
 - **Global config** – Target directory for recordings, log level, stream quality, stream max rate, etc. Use the UI **Config** page or `GET/PATCH /config`.
-- **Per-camera config** – Motion threshold, event gap, pre/post capture, picture/movie output, filenames, and **stream_url** (e.g. MJPEG `http://<pi>:8080/stream` or RTSP). Use the UI **Cameras → Config** or `GET/PATCH /cameras/{id}/config`.
+- **Per-camera config** – Motion threshold, event gap, pre/post capture, picture/movie output, filenames, and **stream_url** (e.g. MJPEG `http://<pi>:8082/stream` or RTSP). Use the UI **Cameras → Config** or `GET/PATCH /cameras/{id}/config`.
 - **Storage** – Where recordings are saved. Use **Storage** in the UI or `GET/PATCH /storage`.
+
+**Stream resolution and trickle-down** – When video comes from a **stream_url** (e.g. [Hootcam Streamer](https://github.com/ManliestBen/hootcam-streamer) on the Pi), the resolution is normally set on the Pi. You can either edit the streamer’s `config.yaml` on the Pi and restart, or use **trickle-down**: set **Streamer API URL** in global config (Config page) to `http://<pi-ip>:8084` (the streamer’s API port). Then when you save **Cameras → Config** (e.g. width, height, framerate, **focus**: autofocus mode and lens position for fixed focus), Motion pushes those values to the streamer; the streamer updates its config and restarts the Spyglass streams. No need to SSH to the Pi to change resolution or focus.
 
 Config is stored in SQLite (and optionally in a JSON file). Default data directory is derived from `HOOTCAM_TARGET_DIR` or the current working directory.
 
@@ -165,6 +167,8 @@ See **contrib/README.md** for more detail.
 ## Troubleshooting
 
 - **"no frame from stream for too long; marking failed"** – The app is not receiving any frames from the camera’s `stream_url`. Check: (1) **Stream URL** is set in the UI (Cameras → Camera 0/1 → Config) to the Pi’s stream (e.g. `http://<pi-ip>:8082/stream` and `http://<pi-ip>:8083/stream`). (2) Hootcam Streamer is running on the Pi and both streams are up. (3) The NUC can reach the Pi (e.g. `curl http://<pi-ip>:8082/stream` from the NUC). (4) No firewall blocking the stream ports. The log line includes `stream_url=...` so you can confirm which URL is being used.
+
+- **"Connection refused" / "Stream ends prematurely" (FFmpeg/OpenCV messages)** – The stream reader retries automatically with exponential backoff (5 s, then 7.5 s, 11 s, … up to 60 s). You’ll see log lines like *"Camera N: stream connection failed (connection refused or unreachable). Retrying in X s"* and *"Camera N: stream ended unexpectedly, reconnecting in 3 s"*. No need to restart the app; once the Pi or stream is back, the reader reconnects.
 
 ## API
 

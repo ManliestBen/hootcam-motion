@@ -5,10 +5,13 @@ REST API routes. Full option descriptions are in schemas.py and appear in OpenAP
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import subprocess
 import sys
+import urllib.request
+import urllib.error
 from pathlib import Path
 from typing import Any, Optional
 
@@ -265,12 +268,43 @@ async def get_camera_config(camera_index: int) -> CameraConfig:
     return state["camera_configs"][camera_index]
 
 
+def _push_config_to_streamer(streamer_api_url: str, camera_configs: list) -> None:
+    """Send cam0/cam1 resolution and fps to Hootcam Streamer (fire-and-forget)."""
+    try:
+        base = streamer_api_url.rstrip("/")
+        url = f"{base}/config"
+        payload = {}
+        for i, cfg in enumerate(camera_configs[:2]):
+            key = "cam0" if i == 0 else "cam1"
+            payload[key] = {
+                "width": getattr(cfg, "width", None) or 1920,
+                "height": getattr(cfg, "height", None) or 1080,
+                "fps": getattr(cfg, "framerate", None) or 25,
+                "enabled": True,
+            }
+            if getattr(cfg, "autofocus", None) is not None:
+                payload[key]["autofocus"] = cfg.autofocus
+            if getattr(cfg, "lens_position", None) is not None:
+                payload[key]["lens_position"] = cfg.lens_position
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            method="PATCH",
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            if resp.status not in (200, 204):
+                logger.warning("Streamer PATCH /config returned %s", resp.status)
+    except Exception as e:
+        logger.warning("Could not push config to streamer at %s: %s", streamer_api_url, e)
+
+
 @router.patch(
     "/cameras/{camera_index}/config",
     response_model=CameraConfig,
     tags=["Configuration"],
     summary="Update camera configuration",
-    description="Partial update. Only provided fields are changed.",
+    description="Partial update. Only provided fields are changed. If streamer_api_url is set, also pushes resolution/fps to Hootcam Streamer on the Pi.",
 )
 async def patch_camera_config(camera_index: int, update: CameraConfig) -> CameraConfig:
     state = get_state()
@@ -282,6 +316,11 @@ async def patch_camera_config(camera_index: int, update: CameraConfig) -> Camera
         if hasattr(current, k):
             setattr(current, k, v)
     state["save_camera_config"](camera_index, current)
+    # If streamer API URL is set, push cam0/cam1 config so UI changes trickle down to the Pi
+    global_config = state["global_config"]
+    api_url = getattr(global_config, "streamer_api_url", None) if global_config else None
+    if api_url and api_url.strip():
+        asyncio.create_task(asyncio.to_thread(_push_config_to_streamer, api_url.strip(), state["camera_configs"]))
     return current
 
 
